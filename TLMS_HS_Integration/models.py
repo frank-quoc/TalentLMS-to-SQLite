@@ -4,7 +4,7 @@
 
 # class RunSQLite:
 #     def __init__(self, db_file):
-# engine = create_engine("sqlite:///altaclaro.db", future=True)
+
 # Session = sessionmaker(bind=engine, future=True) 
 # # The purpose of sessionmaker is to provide a factory for Session objects with a fixed configuration. 
 # # As it is typical that an application will have an Engine object in module scope, the sessionmaker 
@@ -78,9 +78,10 @@ class StudentCourseInstance(Base):
 
     talentlms_user_id = Column(Integer, ForeignKey('contacts.talentlms_user_id'), primary_key=True) 
     talentlms_course_id = Column(Integer, ForeignKey('courses.talentlms_course_id'), primary_key=True)
+    instance_name = Column(Text)
     firstname = Column(Text)
     lastname = Column(Text)
-    class_name = Column(Text)
+    course_name = Column(Text)
     completed_on = Column(Integer) 
     completion_status = Column(Text)
     completion_percent = Column(Integer) 
@@ -107,12 +108,12 @@ class CourseHSHistory(Base):
     hs_course_id = Column(Integer, unique=True)
 
 
-class StudentCourseInstanceHistory(Base):
-    __tablename__ = "student_course_instance_history"
+class InstanceHistory(Base):
+    __tablename__ = "instance_history"
 
-    talentlms_user_id = Column(Integer, ForeignKey('student_course_instance.talentlms_user_id')) 
-    talentlms_course_id = Column(Integer, ForeignKey('student_course_instance.talentlms_course_id')) 
-    hs_association_id = Column(Integer, unique=True)
+    talentlms_user_id = Column(Integer, ForeignKey('instance_history.talentlms_user_id')) 
+    talentlms_course_id = Column(Integer, ForeignKey('instance_history.talentlms_course_id')) 
+    hs_instance_id = Column(Integer, unique=True)
     __table_args__ = (PrimaryKeyConstraint(talentlms_user_id, talentlms_course_id, name='user_course_compound_id'),)
 
 class TimeTracking(Base):
@@ -123,21 +124,21 @@ class TimeTracking(Base):
     __table_args__ = (CheckConstraint(obj.in_(['contacts', 'courses', 'student_course_instance'])),)
 
 
-def get_sql_datetime(datetime_sql_file):
-    with engine.connect() as con:
-        with open(datetime_sql_file) as file:
-            query = text(file.read())
-            results = con.execute(query)
-            return results.first()[0]
+# def get_sql_datetime(datetime_sql_file):
+#     with engine.connect() as con:
+#         with open(datetime_sql_file) as file:
+#             query = text(file.read())
+#             results = con.execute(query)
+#             return results.first()[0]
 
-def create_payload(outer_join_file):
+def create_obj_payload(outer_join_file):
     with engine.connect() as con:
         with open(outer_join_file) as file:
             query = text(file.read())
             results = con.execute(query)
             return {'inputs': [{'properties': dict(result)} for result in results]}
 
-def update_payload(inner_join_file, obj):
+def update_obj_payload(inner_join_file, obj):
     payload = {'inputs': []}
     with engine.connect() as con:
         with open(inner_join_file) as file:
@@ -150,16 +151,34 @@ def update_payload(inner_join_file, obj):
                     payload['inputs'].append({'id': record.pop('hs_contact_id'), 'properties': record})
                 elif obj == 'courses':
                     payload['inputs'].append({'id': record.pop('hs_course_id'), 'properties': record})
-    print(payload)
+                elif obj == '2-7353817':
+                    payload['inputs'].append({'id': record.pop('hs_instance_id'), 'properties': record})
     return payload
 
+def create_assoc_payload(assoc_join_file, assoc_type):
+    with engine.connect() as con:
+        with open(assoc_join_file) as file:
+            query = text(file.read())
+            results = con.execute(query)
+            return {'inputs': [{
+                                "from": {
+                                    "id": str(result[0])
+                                },
+                                "to": {
+                                    "id": str(result[1])
+                                },
+                                "type": assoc_type
+                                } for result in results]}
+   
+
 def gather_batch_hs_id(objectType, res):
-    print(res.json())
     for r in res.json()['results']:
         if objectType == 'contacts':
             session.add(ContactHSHistory(hs_contact_id=r['id'], talentlms_user_id=r['properties']['talentlms_user_id']))
         elif objectType == 'courses':
             session.add(CourseHSHistory(hs_course_id=r['id'], talentlms_course_id=r['properties']['talentlms_course_id']))
+        elif objectType == '2-7353817':
+            session.add(InstanceHistory(hs_instance_id=r['id'], talentlms_user_id=r['properties']['talentlms_user_id'], talentlms_course_id=r['properties']['talentlms_course_id']))
     session.commit()
 
 def gather_unit_hs_id(objectType, res):
@@ -167,7 +186,9 @@ def gather_unit_hs_id(objectType, res):
     if objectType == 'contacts':
         session.add(ContactHSHistory(hs_contact_id=r['id'], talentlms_user_id=r['properties']['talentlms_user_id']))
     elif objectType == 'courses':
-            session.add(CourseHSHistory(hs_course_id=r['id'], talentlms_course_id=r['properties']['talentlms_course_id']))
+        session.add(CourseHSHistory(hs_course_id=r['id'], talentlms_course_id=r['properties']['talentlms_course_id']))
+    elif objectType == '2-7353817': # this potentially needs to be the id given when creating the custom object
+        session.add(InstanceHistory(hs_instance_id=r['id'], talentlms_user_id=r['properties']['talentlms_user_id'], talentlms_course_id=r['properties']['talentlms_course_id']))
     session.commit()
 
 def update_time_tracking(objectType):
